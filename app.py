@@ -30,7 +30,40 @@ SPEAKERS = [
     "Aiden", "Dylan", "Eric", "Ono_anna", "Ryan", "Serena", "Sohee", "Uncle_fu", "Vivian"
 ]
 LANGUAGES = ["Auto", "Chinese", "English", "Japanese", "Korean", "French", "German", "Spanish", "Portuguese", "Russian"]
+# --- اسکن خودکار پوشه صداهای رفرنس ---
+VOICES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voices")
+os.makedirs(VOICES_DIR, exist_ok=True)
 
+def get_preset_voices():
+    if not os.path.exists(VOICES_DIR):
+        return ["(انتخاب صدای رفرنس)"]
+    valid_exts = ('.wav', '.mp3', '.ogg', '.flac', '.m4a')
+    files = [f for f in os.listdir(VOICES_DIR) if f.lower().endswith(valid_exts)]
+    return ["(انتخاب صدای رفرنس)"] + sorted(files)
+
+def on_preset_select(selected_voice, current_mode, current_lang):
+    if not selected_voice or selected_voice == "(انتخاب صدای رفرنس)":
+        return None, gr.update()
+    audio_path = os.path.join(VOICES_DIR, selected_voice)
+    if not os.path.exists(audio_path):
+        return None, gr.update()
+    
+    # بررسی وجود فایل متن با همان نام (.txt)
+    base_name, _ = os.path.splitext(selected_voice)
+    txt_path = os.path.join(VOICES_DIR, f"{base_name}.txt")
+    if os.path.exists(txt_path):
+        try:
+            with open(txt_path, "r", encoding="utf-8") as f:
+                return audio_path, f.read().strip()
+        except Exception:
+            pass
+            
+    # در غیر این صورت استخراج خودکار متن
+    try:
+        ref_text = transcribe_reference(audio_path, current_mode, current_lang)
+        return audio_path, ref_text
+    except Exception:
+        return audio_path, gr.update()
 # --- Helper Functions ---
 
 def get_model_path(model_type: str, model_size: str) -> str:
@@ -399,7 +432,12 @@ def build_ui():
                 with gr.Row():
                     with gr.Column(scale=2):
                         clone_target_text = gr.Textbox(label="Target Text", lines=3, placeholder="Enter the text you want the cloned voice to speak...")
-                        clone_ref_audio = gr.Audio(label="Reference Audio (Upload a voice sample to clone)", type="filepath")
+                        preset_voice_dropdown = gr.Dropdown(
+                            label="🎙️ صدای پیش‌فرض (انتخاب از لیست)",
+                            choices=get_preset_voices(),
+                            value="(انتخاب صدای رفرنس)",
+                            interactive=True
+                        clone_ref_audio = gr.Audio(label="Reference Audio (یا آپلود دستی فایل)", type="filepath")
                         
                         with gr.Row():
                             clone_language = gr.Dropdown(label="Language", choices=LANGUAGES, value="Auto",scale=1)
@@ -435,6 +473,11 @@ def build_ui():
 
                 clone_mode.change(on_mode_change, inputs=[clone_mode], outputs=[clone_ref_text])
                 clone_ref_audio.change(transcribe_reference, inputs=[clone_ref_audio, clone_mode, clone_language], outputs=[clone_ref_text])
+                preset_voice_dropdown.change(
+                    on_preset_select,
+                    inputs=[preset_voice_dropdown, clone_mode, clone_language],
+                    outputs=[clone_ref_audio, clone_ref_text]
+                )
                 
                 clone_btn.click(
                     smart_generate_clone,
